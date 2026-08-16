@@ -29,13 +29,28 @@ navigateur refuse de lire un JSON voisin en `file://`.
 | `carte.template.html` | la page — c'est elle qu'on édite |
 | `build_carte.py` | injecte les données dans le template |
 | `carte.html` | la page à ouvrir (générée) |
+| `build_pdfs.py` | produit les cinq feuilles PDF |
+| `pdf/` | les feuilles prêtes à imprimer (générées) |
+
+## Les feuilles PDF
+
+`pdf/` contient cinq feuilles d'une page chacune :
+
+- quatre cartes en paysage, une par niveau, points colorés et numérotés ;
+- une liste en portrait — numéro, titre, temps total, page — dans l'ordre
+  des temps croissants.
 
 ## Régénérer
 
 ```sh
 python3 geocode_randos.py   # randos.json     -> randos-geo.json
 python3 build_carte.py      # randos-geo.json -> carte.html
+python3 build_pdfs.py       # carte.html      -> pdf/*.pdf
 ```
+
+`build_pdfs.py` pilote un Chrome sans interface : la page se met en
+configuration d'export via son URL (`?feuille=carte&niveau=Marcheur`,
+`?feuille=liste`), attend ses tuiles, et le navigateur imprime.
 
 Le géocodage garde ses réponses dans `.geocache.json` pour ne pas
 retaper les API à chaque essai.

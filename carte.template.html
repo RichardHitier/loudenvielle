@@ -232,6 +232,20 @@
     height: 605px;
   }
 
+  /* ---- modes d'export (?feuille=carte&niveau=… ou ?feuille=liste) ----
+     Une feuille par niveau, en paysage, sans panneau ni liste ; plus une
+     feuille de liste seule. Mêmes dimensions à l'écran qu'à l'impression,
+     pour que Leaflet charge les bonnes tuiles avant la capture. */
+  body.export header,
+  body.export #panneau { display: none; }
+  body.export #app { grid-template-columns: 1fr; }
+
+  body.export-carte #carte {
+    width: 1032px;   /* 273 mm à 96 dpi */
+    height: 643px;   /* 170 mm */
+  }
+  body.export-liste #carte { display: none; }
+
   @media print {
     @page { size: A4 portrait; margin: 12mm; }
 
@@ -300,6 +314,26 @@
       font-variant-numeric: tabular-nums;
     }
     #feuille tr { page-break-inside: avoid; }
+
+    /* Feuille de carte : la carte occupe tout, sans tableau derrière. */
+    body.export-carte #carte {
+      height: 170mm;
+      page-break-after: auto;
+    }
+    body.export-carte #feuille { display: none; }
+
+    /* Feuille de liste : le tableau seul, resserré pour que les 44 randos
+       tiennent sur une seule feuille. */
+    body.export-liste #carte,
+    body.export-liste #entete-impression { display: none; }
+    body.export-liste #feuille table { font-size: 9pt; }
+    body.export-liste #feuille td { padding: 2px 6px; }
+    body.export-liste #feuille .pt {
+      width: 15px;
+      height: 15px;
+      font-size: 7.5pt;
+    }
+
     #feuille .pt {
       display: inline-grid;
       place-items: center;
@@ -532,32 +566,48 @@ function dessinerEnteteImpression() {
     .map((n) => `<span><i style="background:${n.couleur}"></i>${n.nom}</span>`)
     .join("");
 
+  const titre = niveauChoisi
+    ? `${niveauChoisi} — ${visibles().length} randonnées`
+    : `Randonnées — ${visibles().length} sur ${RANDOS.length}`;
+
   document.getElementById("entete-impression").innerHTML =
-    `<h1>Randonnées — ${visibles().length} sur ${RANDOS.length}</h1>` +
-    `<div class="cle">${cle}</div>`;
+    `<h1>${titre}</h1><div class="cle">${cle}</div>`;
 }
 
 function dessinerFeuille() {
+  // La feuille de liste ne garde que les quatre colonnes demandées ;
+  // l'impression depuis le bouton reste détaillée.
+  const reduite = document.body.classList.contains("export-liste");
+
   const lignes = parDuree(visibles()).map((r) => {
     const n = niveauDe(r);
-    return `<tr>
-      <td><span class="pt" style="background:${n.couleur};color:${n.encre}">${r.numero}</span></td>
-      <td>${r.titre}</td>
-      <td>${r.page ?? "—"}</td>
-      <td>${dureeTexte(r.tps_montee)}</td>
-      <td>${dureeTexte(r.tps_total)}</td>
-      <td>${r.boucle ? "oui" : "non"}</td>
-      <td>${r.niveau ?? "—"}</td>
-    </tr>`;
+    const pastille =
+      `<td><span class="pt" style="background:${n.couleur};color:${n.encre}">${r.numero}</span></td>`;
+    return reduite
+      ? `<tr>${pastille}
+          <td>${r.titre}</td>
+          <td>${dureeTexte(r.tps_total)}</td>
+          <td>${r.page ?? "—"}</td>
+        </tr>`
+      : `<tr>${pastille}
+          <td>${r.titre}</td>
+          <td>${r.page ?? "—"}</td>
+          <td>${dureeTexte(r.tps_montee)}</td>
+          <td>${dureeTexte(r.tps_total)}</td>
+          <td>${r.boucle ? "oui" : "non"}</td>
+          <td>${r.niveau ?? "—"}</td>
+        </tr>`;
   }).join("");
+
+  const entetes = reduite
+    ? "<th>N°</th><th>Titre</th><th>Temps total</th><th>Page</th>"
+    : "<th>N°</th><th>Titre</th><th>Page</th>" +
+      "<th>Montée</th><th>Total</th><th>Boucle</th><th>Niveau</th>";
 
   document.getElementById("feuille").innerHTML = `
     <h2>Randonnées — ${visibles().length} fiches</h2>
     <table>
-      <thead><tr>
-        <th>N°</th><th>Titre</th><th>Page</th>
-        <th>Montée</th><th>Total</th><th>Boucle</th><th>Niveau</th>
-      </tr></thead>
+      <thead><tr>${entetes}</tr></thead>
       <tbody>${lignes}</tbody>
     </table>`;
 }
@@ -637,7 +687,42 @@ window.addEventListener("beforeprint", () => {
   ajusterVue(false);
 });
 
+// ---------------------------------------------------------------- export
+
+/* Modes déclenchés par l'URL, utilisés par build_pdfs.py :
+     ?feuille=carte&niveau=Marcheur  → la carte de ce niveau, en paysage
+     ?feuille=liste                  → la liste seule, en portrait
+   La page se prépare seule ; le générateur n'a plus qu'à imprimer. */
+function modeExport() {
+  const params = new URLSearchParams(location.search);
+  const feuille = params.get("feuille");
+  if (!feuille) return;
+
+  document.body.classList.add("export", `export-${feuille}`);
+
+  if (feuille === "carte") {
+    niveauChoisi = params.get("niveau");
+    document.head.insertAdjacentHTML(
+      "beforeend",
+      "<style>@page { size: A4 landscape; margin: 12mm; }</style>"
+    );
+  }
+
+  tout();
+
+  if (feuille !== "carte") {
+    document.body.dataset.pret = "oui";
+    return;
+  }
+  carte.invalidateSize();
+  ajusterVue(false);
+  tuilesPretes().then(() => {
+    document.body.dataset.pret = "oui";
+  });
+}
+
 tout();
+modeExport();
 </script>
 </body>
 </html>
