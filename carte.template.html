@@ -1,0 +1,656 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Randos — carte</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  /* Rampe ordinale bleue : clair = facile, foncé = difficile.
+     Validée (monotone en clarté, écarts visibles, teinte unique). */
+  :root {
+    --niv-1: #86b6ef;  /* Promeneur   */
+    --niv-2: #3987e5;  /* Marcheur    */
+    --niv-3: #1c5cab;  /* Randonneur  */
+    --niv-4: #0d366b;  /* Expérimenté */
+
+    --surface:   #fcfcfb;
+    --plane:     #f9f9f7;
+    --ink:       #0b0b0b;
+    --ink-2:     #52514e;
+    --muted:     #898781;
+    --hairline:  #e1e0d9;
+    --border:    rgba(11, 11, 11, 0.10);
+
+    --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    height: 100%;
+    margin: 0;
+    font-family: var(--sans);
+    color: var(--ink);
+    background: var(--plane);
+  }
+
+  #app {
+    display: grid;
+    grid-template-columns: 340px 1fr;
+    grid-template-rows: auto 1fr;
+    height: 100%;
+  }
+
+  header {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    padding: 14px 20px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--hairline);
+  }
+  header h1 { margin: 0; font-size: 17px; font-weight: 600; }
+  header .compte { color: var(--ink-2); font-size: 13px; }
+  header .grandir { flex: 1; }
+
+  button {
+    font: inherit;
+    font-size: 13px;
+    color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 12px;
+    cursor: pointer;
+  }
+  button:hover { background: var(--plane); }
+  /* Réservé aux boutons de tri : la légende, elle, garde son encre normale. */
+  .tris button[aria-pressed="true"] {
+    background: var(--ink);
+    color: #fff;
+    border-color: var(--ink);
+  }
+
+  /* ---- panneau latéral ---- */
+
+  #panneau {
+    background: var(--surface);
+    border-right: 1px solid var(--hairline);
+    overflow-y: auto;
+    padding: 16px;
+  }
+
+  .bloc { margin-bottom: 20px; }
+  .bloc h2 {
+    margin: 0 0 8px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .tris { display: flex; gap: 6px; }
+
+  /* La légende sert aussi de filtre : un clic masque le niveau. */
+  .legende { display: flex; flex-direction: column; gap: 2px; }
+  .legende button {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    width: 100%;
+    padding: 5px 8px;
+    border: 0;
+    background: none;
+    color: var(--ink);
+    font-size: 13px;
+    text-align: left;
+  }
+  .legende button:hover { background: var(--plane); }
+  .legende .pastille {
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    border: 2px solid var(--surface);
+    box-shadow: 0 0 0 1px var(--border);
+    flex: none;
+  }
+  .legende .nb { margin-left: auto; color: var(--muted); font-size: 12px; }
+  .legende button[aria-pressed="false"] { opacity: 0.4; }
+  .legende button[aria-pressed="false"] .pastille { background: #fff !important; }
+
+  /* ---- liste ---- */
+
+  #liste { display: flex; flex-direction: column; gap: 1px; }
+
+  .ligne {
+    display: grid;
+    grid-template-columns: 26px 1fr auto;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 7px 8px;
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    text-align: left;
+    cursor: pointer;
+  }
+  .ligne:hover { background: var(--plane); }
+  .ligne[data-actif="true"] { background: #eef4fd; }
+
+  .ligne .num {
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    font-size: 11px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  .ligne .titre { font-size: 13px; line-height: 1.3; }
+  .ligne .meta { font-size: 11px; color: var(--muted); }
+  .ligne .duree {
+    font-size: 12px;
+    color: var(--ink-2);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---- carte ---- */
+
+  #carte { height: 100%; background: var(--plane); }
+
+  .pastille-carte {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    border: 2px solid #fff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+    font-family: var(--sans);
+    font-size: 12px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  .pastille-carte.sel {
+    outline: 3px solid #0b0b0b;
+    outline-offset: 1px;
+  }
+
+  /* ---- fiche (popup) ---- */
+
+  .fiche h3 {
+    margin: 0 0 2px;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .fiche .niveau {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+    font-size: 12px;
+    color: var(--ink-2);
+  }
+  .fiche .niveau i {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+  .fiche dl {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 3px 14px;
+    margin: 0;
+    font-size: 12.5px;
+  }
+  .fiche dt { color: var(--muted); }
+  .fiche dd { margin: 0; font-variant-numeric: tabular-nums; }
+
+  .leaflet-popup-content { margin: 12px 14px; }
+  .leaflet-popup-content-wrapper { border-radius: 8px; }
+
+  /* ---- impression / PDF ---- */
+
+  #feuille, #entete-impression { display: none; }
+
+  /* Pendant la préparation du PDF, la carte prend à l'écran la taille exacte
+     qu'elle aura sur la feuille (186 × 160 mm à 96 dpi), le temps que Leaflet
+     charge les tuiles de ce cadrage-là. Sans ça, l'impression part avec le
+     cadrage de l'écran et des tuiles manquantes. */
+  body.pre-impression #panneau,
+  body.pre-impression header { visibility: hidden; }
+  body.pre-impression #carte {
+    width: 703px;
+    height: 605px;
+  }
+
+  @media print {
+    @page { size: A4 portrait; margin: 12mm; }
+
+    html, body { height: auto; background: #fff; }
+    #app { display: block; height: auto; }
+    header, #panneau, .leaflet-control-container { display: none !important; }
+
+    /* Les fonds de carte et les pastilles doivent sortir en couleur. */
+    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+    #carte {
+      height: 148mm;
+      border: 1px solid var(--hairline);
+      page-break-after: always;
+    }
+
+    /* Sans lui, la carte imprimée n'aurait aucune clé de lecture des couleurs. */
+    #entete-impression {
+      display: flex;
+      align-items: baseline;
+      gap: 18px;
+      margin-bottom: 6px;
+    }
+    #entete-impression h1 { margin: 0; font-size: 13px; }
+    #entete-impression .cle {
+      display: flex;
+      gap: 14px;
+      margin-left: auto;
+      font-size: 9pt;
+      color: var(--ink-2);
+    }
+    #entete-impression .cle span {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+    #entete-impression .cle i {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+
+    #feuille { display: block; }
+    #feuille h2 {
+      font-size: 13px;
+      margin: 0 0 8px;
+    }
+    #feuille table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 10pt;
+    }
+    #feuille th {
+      text-align: left;
+      font-size: 8pt;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+      border-bottom: 1px solid var(--ink);
+      padding: 4px 6px;
+    }
+    #feuille td {
+      padding: 4px 6px;
+      border-bottom: 1px solid var(--hairline);
+      font-variant-numeric: tabular-nums;
+    }
+    #feuille tr { page-break-inside: avoid; }
+    #feuille .pt {
+      display: inline-grid;
+      place-items: center;
+      width: 17px;
+      height: 17px;
+      border-radius: 50%;
+      font-size: 8pt;
+      font-weight: 700;
+    }
+  }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <header>
+    <h1>Randonnées</h1>
+    <span class="compte" id="compte"></span>
+    <span class="grandir"></span>
+    <button id="imprimer">Imprimer / PDF</button>
+  </header>
+
+  <aside id="panneau">
+    <div class="bloc">
+      <h2>Niveau — cliquer pour filtrer</h2>
+      <div class="legende" id="legende"></div>
+    </div>
+
+    <div class="bloc">
+      <h2>Trier par</h2>
+      <div class="tris" id="tris"></div>
+    </div>
+
+    <div class="bloc">
+      <h2>Les randos</h2>
+      <div id="liste"></div>
+    </div>
+  </aside>
+
+  <div id="entete-impression"></div>
+  <div id="carte"></div>
+</div>
+
+<section id="feuille"></section>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const RANDOS = /*__DONNEES__*/[];
+
+// Ordre de difficulté croissante : c'est lui qui donne la rampe de couleur
+// et l'ordre du tri par niveau.
+const NIVEAUX = [
+  { nom: "Promeneur",   couleur: "#86b6ef", encre: "#0b0b0b" },
+  { nom: "Marcheur",    couleur: "#3987e5", encre: "#0b0b0b" },
+  { nom: "Randonneur",  couleur: "#1c5cab", encre: "#ffffff" },
+  { nom: "Expérimenté", couleur: "#0d366b", encre: "#ffffff" },
+];
+const PAR_NIVEAU = new Map(NIVEAUX.map((n, i) => [n.nom, { ...n, rang: i }]));
+const INCONNU = { nom: "—", couleur: "#898781", encre: "#ffffff", rang: 99 };
+
+const niveauDe = (r) => PAR_NIVEAU.get(r.niveau) ?? INCONNU;
+
+/** "4h15" -> 255 minutes ; null / illisible -> null. */
+function minutes(duree) {
+  const m = /^(\d+)h(\d*)$/.exec(duree ?? "");
+  return m ? Number(m[1]) * 60 + Number(m[2] || 0) : null;
+}
+
+const dureeTexte = (d) => d ?? "—";
+
+// ---------------------------------------------------------------- état
+
+let tri = "numero";
+const masques = new Set();          // niveaux masqués
+let selection = null;               // numéro de la rando sélectionnée
+
+const visibles = () =>
+  RANDOS.filter((r) => !masques.has(niveauDe(r).nom));
+
+function triees(liste) {
+  const copie = [...liste];
+  if (tri === "niveau") {
+    copie.sort((a, b) =>
+      niveauDe(a).rang - niveauDe(b).rang ||
+      (minutes(a.tps_total) ?? 1e9) - (minutes(b.tps_total) ?? 1e9));
+  } else if (tri === "temps") {
+    copie.sort((a, b) =>
+      (minutes(a.tps_total) ?? 1e9) - (minutes(b.tps_total) ?? 1e9));
+  } else {
+    copie.sort((a, b) => a.numero - b.numero);
+  }
+  return copie;
+}
+
+// ---------------------------------------------------------------- carte
+
+// fadeAnimation coupé : une tuile capturée pendant son fondu sort délavée
+// ou absente du PDF.
+const carte = L.map("carte", { zoomControl: true, fadeAnimation: false });
+
+const ignPlan = L.tileLayer(
+  "https://data.geopf.fr/wmts?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetTile" +
+  "&LAYER=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2&STYLE=normal&TILEMATRIXSET=PM" +
+  "&FORMAT=image/png&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}",
+  { maxZoom: 19, attribution: "&copy; IGN — Géoplateforme" }
+);
+
+const topo = L.tileLayer(
+  "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
+  {
+    maxZoom: 17,
+    attribution:
+      "&copy; OpenTopoMap — données &copy; OpenStreetMap",
+  }
+);
+
+const photo = L.tileLayer(
+  "https://data.geopf.fr/wmts?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetTile" +
+  "&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&TILEMATRIXSET=PM" +
+  "&FORMAT=image/jpeg&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}",
+  { maxZoom: 19, attribution: "&copy; IGN — Géoplateforme" }
+);
+
+topo.addTo(carte);
+L.control.layers(
+  { "Topo (relief, sentiers)": topo, "Plan IGN": ignPlan, "Photo aérienne": photo },
+  null,
+  { collapsed: false }
+).addTo(carte);
+
+const marqueurs = new Map();
+
+function fiche(r) {
+  const n = niveauDe(r);
+  return `
+    <div class="fiche">
+      <h3>${r.numero}. ${r.titre}</h3>
+      <div class="niveau">
+        <i style="background:${n.couleur}"></i>${r.niveau ?? "niveau inconnu"}
+      </div>
+      <dl>
+        <dt>Page</dt><dd>${r.page ?? "—"}</dd>
+        <dt>Temps de montée</dt><dd>${dureeTexte(r.tps_montee)}</dd>
+        <dt>Temps total</dt><dd>${dureeTexte(r.tps_total)}</dd>
+        <dt>Boucle</dt><dd>${r.boucle ? "oui" : "non"}</dd>
+      </dl>
+    </div>`;
+}
+
+for (const r of RANDOS) {
+  const n = niveauDe(r);
+  const marqueur = L.marker([r.lat, r.lon], {
+    icon: L.divIcon({
+      className: "",
+      html: `<div class="pastille-carte" style="background:${n.couleur};color:${n.encre}">${r.numero}</div>`,
+      iconSize: [26, 26],
+      iconAnchor: [13, 13],
+      popupAnchor: [0, -14],
+    }),
+    title: `${r.numero}. ${r.titre}`,
+  });
+  marqueur.bindPopup(fiche(r));
+  marqueur.on("click", () => selectionner(r.numero, false));
+  marqueurs.set(r.numero, marqueur);
+}
+
+carte.fitBounds(
+  L.latLngBounds(RANDOS.map((r) => [r.lat, r.lon])),
+  { padding: [40, 40] }
+);
+
+// ---------------------------------------------------------------- rendu
+
+function dessinerCarte() {
+  const montres = new Set(visibles().map((r) => r.numero));
+  for (const [numero, marqueur] of marqueurs) {
+    const doitEtreLa = montres.has(numero);
+    const estLa = carte.hasLayer(marqueur);
+    if (doitEtreLa && !estLa) marqueur.addTo(carte);
+    if (!doitEtreLa && estLa) carte.removeLayer(marqueur);
+  }
+}
+
+function dessinerLegende() {
+  const legende = document.getElementById("legende");
+  legende.innerHTML = "";
+  for (const niveau of NIVEAUX) {
+    const actif = !masques.has(niveau.nom);
+    const nb = RANDOS.filter((r) => r.niveau === niveau.nom).length;
+    const bouton = document.createElement("button");
+    bouton.setAttribute("aria-pressed", String(actif));
+    bouton.innerHTML =
+      `<span class="pastille" style="background:${niveau.couleur}"></span>` +
+      `<span>${niveau.nom}</span><span class="nb">${nb}</span>`;
+    bouton.onclick = () => {
+      if (actif) masques.add(niveau.nom);
+      else masques.delete(niveau.nom);
+      tout();
+    };
+    legende.append(bouton);
+  }
+}
+
+function dessinerTris() {
+  const zone = document.getElementById("tris");
+  zone.innerHTML = "";
+  for (const [cle, libelle] of [
+    ["numero", "N°"],
+    ["niveau", "Niveau"],
+    ["temps", "Temps"],
+  ]) {
+    const bouton = document.createElement("button");
+    bouton.textContent = libelle;
+    bouton.setAttribute("aria-pressed", String(tri === cle));
+    bouton.onclick = () => { tri = cle; tout(); };
+    zone.append(bouton);
+  }
+}
+
+function dessinerListe() {
+  const liste = document.getElementById("liste");
+  liste.innerHTML = "";
+  for (const r of triees(visibles())) {
+    const n = niveauDe(r);
+    const ligne = document.createElement("button");
+    ligne.className = "ligne";
+    ligne.dataset.actif = String(selection === r.numero);
+    ligne.innerHTML =
+      `<span class="num" style="background:${n.couleur};color:${n.encre}">${r.numero}</span>` +
+      `<span><span class="titre">${r.titre}</span><br>` +
+      `<span class="meta">${r.niveau ?? "—"}${r.boucle ? " · boucle" : ""}</span></span>` +
+      `<span class="duree">${dureeTexte(r.tps_total)}</span>`;
+    ligne.onclick = () => selectionner(r.numero, true);
+    liste.append(ligne);
+  }
+  document.getElementById("compte").textContent =
+    `${visibles().length} sur ${RANDOS.length}`;
+}
+
+function dessinerEnteteImpression() {
+  const montres = new Set(visibles().map((r) => r.niveau));
+  const cle = NIVEAUX
+    .filter((n) => montres.has(n.nom))
+    .map((n) => `<span><i style="background:${n.couleur}"></i>${n.nom}</span>`)
+    .join("");
+
+  document.getElementById("entete-impression").innerHTML =
+    `<h1>Randonnées — ${visibles().length} sur ${RANDOS.length}</h1>` +
+    `<div class="cle">${cle}</div>`;
+}
+
+function dessinerFeuille() {
+  const lignes = triees(visibles()).map((r) => {
+    const n = niveauDe(r);
+    return `<tr>
+      <td><span class="pt" style="background:${n.couleur};color:${n.encre}">${r.numero}</span></td>
+      <td>${r.titre}</td>
+      <td>${r.page ?? "—"}</td>
+      <td>${dureeTexte(r.tps_montee)}</td>
+      <td>${dureeTexte(r.tps_total)}</td>
+      <td>${r.boucle ? "oui" : "non"}</td>
+      <td>${r.niveau ?? "—"}</td>
+    </tr>`;
+  }).join("");
+
+  document.getElementById("feuille").innerHTML = `
+    <h2>Randonnées — ${visibles().length} fiches</h2>
+    <table>
+      <thead><tr>
+        <th>N°</th><th>Titre</th><th>Page</th>
+        <th>Montée</th><th>Total</th><th>Boucle</th><th>Niveau</th>
+      </tr></thead>
+      <tbody>${lignes}</tbody>
+    </table>`;
+}
+
+function selectionner(numero, recentrer) {
+  selection = numero;
+  const marqueur = marqueurs.get(numero);
+  if (marqueur && carte.hasLayer(marqueur)) {
+    if (recentrer) carte.setView(marqueur.getLatLng(), Math.max(carte.getZoom(), 14));
+    marqueur.openPopup();
+  }
+  dessinerListe();
+}
+
+function tout() {
+  dessinerLegende();
+  dessinerTris();
+  dessinerListe();
+  dessinerCarte();
+  dessinerEnteteImpression();
+  dessinerFeuille();
+}
+
+// ---------------------------------------------------------------- impression
+
+/** Recadre sur les points affichés ; sans filtre, sur les 44. */
+function ajusterVue(anime = true) {
+  const points = visibles().map((r) => [r.lat, r.lon]);
+  if (points.length) {
+    carte.fitBounds(L.latLngBounds(points), {
+      padding: [30, 30],
+      animate: anime,   // sans animation avant impression : sinon le PDF
+    });                 // se fige au milieu d'une transformation CSS
+  }
+}
+
+/** Attend que la couche active ait fini ses tuiles (avec garde-fou).
+ *  On sonde l'état plutôt que d'écouter "load" : après un recadrage, cet
+ *  événement peut être passé avant qu'on s'y abonne. */
+function tuilesPretes(delaiMax = 12000) {
+  return new Promise((resolve) => {
+    const couche = [topo, ignPlan, photo].find((c) => carte.hasLayer(c));
+    if (!couche) return resolve();
+    const debut = Date.now();
+    const verifier = () => {
+      if (!couche.isLoading() || Date.now() - debut > delaiMax) resolve();
+      else setTimeout(verifier, 150);
+    };
+    setTimeout(verifier, 200);
+  });
+}
+
+async function imprimer() {
+  const bouton = document.getElementById("imprimer");
+  bouton.disabled = true;
+  bouton.textContent = "Préparation…";
+
+  document.body.classList.add("pre-impression");
+  carte.invalidateSize();
+  ajusterVue(false);
+  await tuilesPretes();
+  await new Promise((r) => setTimeout(r, 500));  // laisse peindre
+  window.print();
+
+  document.body.classList.remove("pre-impression");
+  carte.invalidateSize();
+  ajusterVue();
+  bouton.disabled = false;
+  bouton.textContent = "Imprimer / PDF";
+}
+
+document.getElementById("imprimer").onclick = imprimer;
+
+// Ctrl+P direct : on ne peut rien attendre, mais au moins le cadrage suit la
+// nouvelle géométrie de page. Les tuiles déjà vues sont en cache.
+window.addEventListener("beforeprint", () => {
+  carte.invalidateSize();
+  ajusterVue(false);
+});
+
+tout();
+</script>
+</body>
+</html>
