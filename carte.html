@@ -376,7 +376,13 @@ const visibles = () =>
     ? RANDOS
     : RANDOS.filter((r) => r.niveau === niveauChoisi);
 
-const parNumero = (liste) => [...liste].sort((a, b) => a.numero - b.numero);
+// Temps total croissant ; à durée égale, l'ordre des numéros départage.
+const parDuree = (liste) =>
+  [...liste].sort(
+    (a, b) =>
+      (minutes(a.tps_total) ?? Infinity) - (minutes(b.tps_total) ?? Infinity) ||
+      a.numero - b.numero
+  );
 
 // ---------------------------------------------------------------- carte
 
@@ -502,7 +508,7 @@ function dessinerLegende() {
 function dessinerListe() {
   const liste = document.getElementById("liste");
   liste.innerHTML = "";
-  for (const r of parNumero(visibles())) {
+  for (const r of parDuree(visibles())) {
     const n = niveauDe(r);
     const ligne = document.createElement("button");
     ligne.className = "ligne";
@@ -532,7 +538,7 @@ function dessinerEnteteImpression() {
 }
 
 function dessinerFeuille() {
-  const lignes = parNumero(visibles()).map((r) => {
+  const lignes = parDuree(visibles()).map((r) => {
     const n = niveauDe(r);
     return `<tr>
       <td><span class="pt" style="background:${n.couleur};color:${n.encre}">${r.numero}</span></td>
