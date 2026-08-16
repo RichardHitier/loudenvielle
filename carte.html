@@ -632,9 +632,10 @@ function tout() {
 
 // ---------------------------------------------------------------- impression
 
-/** Recadre sur les points affichés ; sans filtre, sur les 44. */
-function ajusterVue(anime = true) {
-  const points = visibles().map((r) => [r.lat, r.lon]);
+/** Recadre sur les points affichés, ou sur les 44 si `toutes` : les
+ *  feuilles PDF partagent ainsi le même cadrage et se superposent. */
+function ajusterVue(anime = true, toutes = false) {
+  const points = (toutes ? RANDOS : visibles()).map((r) => [r.lat, r.lon]);
   if (points.length) {
     carte.fitBounds(L.latLngBounds(points), {
       padding: [30, 30],
@@ -682,9 +683,11 @@ document.getElementById("imprimer").onclick = imprimer;
 
 // Ctrl+P direct : on ne peut rien attendre, mais au moins le cadrage suit la
 // nouvelle géométrie de page. Les tuiles déjà vues sont en cache.
+// En mode export, ce recadrage doit rester celui des 44 points, sinon il
+// défait le cadrage commun juste avant la capture.
 window.addEventListener("beforeprint", () => {
   carte.invalidateSize();
-  ajusterVue(false);
+  ajusterVue(false, document.body.classList.contains("export-carte"));
 });
 
 // ---------------------------------------------------------------- export
@@ -715,7 +718,7 @@ function modeExport() {
     return;
   }
   carte.invalidateSize();
-  ajusterVue(false);
+  ajusterVue(false, true);   // cadrage commun aux quatre feuilles
   tuilesPretes().then(() => {
     document.body.dataset.pret = "oui";
   });
