@@ -1,0 +1,44 @@
+{
+  "2": {
+    "lat": 42.81967,
+    "lon": 0.0658,
+    "nom": "Cirque de Lis ou d'Érès Lits",
+    "commune": "Gavarnie-Gèdre",
+    "note": "Le géocodeur renvoyait le Cirque du Lis de Cauterets, à 26 km."
+  },
+  "13": {
+    "lat": 42.83674,
+    "lon": 0.07495,
+    "nom": "Mont Arrouy",
+    "commune": "Betpouey",
+    "note": "Le géocodeur renvoyait le Pic Arrouy de Portet-de-Luchon, homonyme à 26 km."
+  },
+  "14": {
+    "lat": 42.8757,
+    "lon": 0.1501,
+    "nom": "Refuge d'Aygues-Cluses",
+    "commune": "Barèges",
+    "note": "Le géocodeur visait le lac ; la rando monte à la cabane."
+  },
+  "28": {
+    "lat": 42.87262,
+    "lon": 0.18721,
+    "nom": "Lac de Bastan ou de Port Bielh",
+    "commune": "Vielle-Aure",
+    "note": "Le géocodeur hésitait entre le col et les laquets voisins."
+  },
+  "34": {
+    "lat": 42.83517,
+    "lon": 0.1151,
+    "nom": "Pic de Néouvielle ou d'Aubert",
+    "commune": "Saint-Lary-Soulan",
+    "note": "Le géocodeur renvoyait le Turon de Néouvielle, qui est la rando 11."
+  },
+  "44": {
+    "lat": 42.92241,
+    "lon": 0.24993,
+    "nom": "la Gaoube",
+    "commune": "Campan, Ancizan",
+    "note": "Le géocodeur renvoyait la vallée de Gaube (Cauterets), à 30 km de là."
+  }
+}
