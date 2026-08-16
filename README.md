@@ -3,10 +3,13 @@
 44 randonnées des Pyrénées (Gavarnie, Luz, Barèges, Néouvielle, vallée
 d'Aure), géocodées puis affichées sur une carte imprimable.
 
+**La carte en ligne :**
+<https://richardhitier.github.io/loudenvielle/>
+
 ## Ouvrir la carte
 
-Ouvrir `carte.html` dans un navigateur — double-clic suffit, il n'y a pas
-de serveur à lancer. Les données sont injectées dans la page, parce qu'un
+En ligne à l'adresse ci-dessus, ou en local : ouvrir `carte.html` dans un
+navigateur — double-clic suffit, il n'y a pas de serveur à lancer. Les données sont injectées dans la page, parce qu'un
 navigateur refuse de lire un JSON voisin en `file://`.
 
 - Les points sont colorés par niveau et portent leur numéro.
