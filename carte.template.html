@@ -6,13 +6,14 @@
 <title>Randos — carte</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
-  /* Rampe ordinale bleue : clair = facile, foncé = difficile.
-     Validée (monotone en clarté, écarts visibles, teinte unique). */
+  /* Vert / bleu / rouge / noir par difficulté croissante. Nuances choisies
+     pour que rouge et vert se séparent aussi par la clarté : à teinte seule
+     ils se confondent en daltonisme (ici ΔE 15.2 en deutéranopie). */
   :root {
-    --niv-1: #86b6ef;  /* Promeneur   */
-    --niv-2: #3987e5;  /* Marcheur    */
-    --niv-3: #1c5cab;  /* Randonneur  */
-    --niv-4: #0d366b;  /* Expérimenté */
+    --niv-1: #0ca30c;  /* Promeneur   */
+    --niv-2: #2a78d6;  /* Marcheur    */
+    --niv-3: #a11d1d;  /* Randonneur  */
+    --niv-4: #0b0b0b;  /* Expérimenté */
 
     --surface:   #fcfcfb;
     --plane:     #f9f9f7;
@@ -66,12 +67,6 @@
     cursor: pointer;
   }
   button:hover { background: var(--plane); }
-  /* Réservé aux boutons de tri : la légende, elle, garde son encre normale. */
-  .tris button[aria-pressed="true"] {
-    background: var(--ink);
-    color: #fff;
-    border-color: var(--ink);
-  }
 
   /* ---- panneau latéral ---- */
 
@@ -92,9 +87,8 @@
     color: var(--muted);
   }
 
-  .tris { display: flex; gap: 6px; }
-
-  /* La légende sert aussi de filtre : un clic masque le niveau. */
+  /* La légende est le sélecteur : un clic n'affiche que ce niveau.
+     Elle reste la clé de lecture des couleurs. */
   .legende { display: flex; flex-direction: column; gap: 2px; }
   .legende button {
     display: flex;
@@ -118,8 +112,16 @@
     flex: none;
   }
   .legende .nb { margin-left: auto; color: var(--muted); font-size: 12px; }
-  .legende button[aria-pressed="false"] { opacity: 0.4; }
-  .legende button[aria-pressed="false"] .pastille { background: #fff !important; }
+  .legende button[aria-pressed="true"] {
+    background: #eef4fd;
+    box-shadow: inset 2px 0 0 var(--ink);
+    font-weight: 600;
+  }
+  .legende .toutes .pastille {
+    background: linear-gradient(135deg,
+      var(--niv-1) 0 25%, var(--niv-2) 25% 50%,
+      var(--niv-3) 50% 75%, var(--niv-4) 75% 100%);
+  }
 
   /* ---- liste ---- */
 
@@ -322,13 +324,8 @@
 
   <aside id="panneau">
     <div class="bloc">
-      <h2>Niveau — cliquer pour filtrer</h2>
+      <h2>N'afficher que</h2>
       <div class="legende" id="legende"></div>
-    </div>
-
-    <div class="bloc">
-      <h2>Trier par</h2>
-      <div class="tris" id="tris"></div>
     </div>
 
     <div class="bloc">
@@ -349,11 +346,12 @@ const RANDOS = /*__DONNEES__*/[];
 
 // Ordre de difficulté croissante : c'est lui qui donne la rampe de couleur
 // et l'ordre du tri par niveau.
+// L'encre du numéro suit le fond : sur le vert, du blanc tomberait à 3,3:1.
 const NIVEAUX = [
-  { nom: "Promeneur",   couleur: "#86b6ef", encre: "#0b0b0b" },
-  { nom: "Marcheur",    couleur: "#3987e5", encre: "#0b0b0b" },
-  { nom: "Randonneur",  couleur: "#1c5cab", encre: "#ffffff" },
-  { nom: "Expérimenté", couleur: "#0d366b", encre: "#ffffff" },
+  { nom: "Promeneur",   couleur: "#0ca30c", encre: "#0b0b0b" },
+  { nom: "Marcheur",    couleur: "#2a78d6", encre: "#ffffff" },
+  { nom: "Randonneur",  couleur: "#a11d1d", encre: "#ffffff" },
+  { nom: "Expérimenté", couleur: "#0b0b0b", encre: "#ffffff" },
 ];
 const PAR_NIVEAU = new Map(NIVEAUX.map((n, i) => [n.nom, { ...n, rang: i }]));
 const INCONNU = { nom: "—", couleur: "#898781", encre: "#ffffff", rang: 99 };
@@ -370,27 +368,15 @@ const dureeTexte = (d) => d ?? "—";
 
 // ---------------------------------------------------------------- état
 
-let tri = "numero";
-const masques = new Set();          // niveaux masqués
+let niveauChoisi = null;            // null = tous les niveaux
 let selection = null;               // numéro de la rando sélectionnée
 
 const visibles = () =>
-  RANDOS.filter((r) => !masques.has(niveauDe(r).nom));
+  niveauChoisi === null
+    ? RANDOS
+    : RANDOS.filter((r) => r.niveau === niveauChoisi);
 
-function triees(liste) {
-  const copie = [...liste];
-  if (tri === "niveau") {
-    copie.sort((a, b) =>
-      niveauDe(a).rang - niveauDe(b).rang ||
-      (minutes(a.tps_total) ?? 1e9) - (minutes(b.tps_total) ?? 1e9));
-  } else if (tri === "temps") {
-    copie.sort((a, b) =>
-      (minutes(a.tps_total) ?? 1e9) - (minutes(b.tps_total) ?? 1e9));
-  } else {
-    copie.sort((a, b) => a.numero - b.numero);
-  }
-  return copie;
-}
+const parNumero = (liste) => [...liste].sort((a, b) => a.numero - b.numero);
 
 // ---------------------------------------------------------------- carte
 
@@ -484,43 +470,39 @@ function dessinerCarte() {
 function dessinerLegende() {
   const legende = document.getElementById("legende");
   legende.innerHTML = "";
-  for (const niveau of NIVEAUX) {
-    const actif = !masques.has(niveau.nom);
-    const nb = RANDOS.filter((r) => r.niveau === niveau.nom).length;
+
+  const lignes = [
+    { nom: null, libelle: "Tous les niveaux", nb: RANDOS.length },
+    ...NIVEAUX.map((n) => ({
+      nom: n.nom,
+      libelle: n.nom,
+      couleur: n.couleur,
+      nb: RANDOS.filter((r) => r.niveau === n.nom).length,
+    })),
+  ];
+
+  for (const ligne of lignes) {
     const bouton = document.createElement("button");
-    bouton.setAttribute("aria-pressed", String(actif));
+    bouton.setAttribute("aria-pressed", String(niveauChoisi === ligne.nom));
+    if (ligne.nom === null) bouton.classList.add("toutes");
+    const fond = ligne.couleur ? `style="background:${ligne.couleur}"` : "";
     bouton.innerHTML =
-      `<span class="pastille" style="background:${niveau.couleur}"></span>` +
-      `<span>${niveau.nom}</span><span class="nb">${nb}</span>`;
+      `<span class="pastille" ${fond}></span>` +
+      `<span>${ligne.libelle}</span><span class="nb">${ligne.nb}</span>`;
     bouton.onclick = () => {
-      if (actif) masques.add(niveau.nom);
-      else masques.delete(niveau.nom);
+      niveauChoisi = ligne.nom;
+      selection = null;
       tout();
+      ajusterVue();
     };
     legende.append(bouton);
-  }
-}
-
-function dessinerTris() {
-  const zone = document.getElementById("tris");
-  zone.innerHTML = "";
-  for (const [cle, libelle] of [
-    ["numero", "N°"],
-    ["niveau", "Niveau"],
-    ["temps", "Temps"],
-  ]) {
-    const bouton = document.createElement("button");
-    bouton.textContent = libelle;
-    bouton.setAttribute("aria-pressed", String(tri === cle));
-    bouton.onclick = () => { tri = cle; tout(); };
-    zone.append(bouton);
   }
 }
 
 function dessinerListe() {
   const liste = document.getElementById("liste");
   liste.innerHTML = "";
-  for (const r of triees(visibles())) {
+  for (const r of parNumero(visibles())) {
     const n = niveauDe(r);
     const ligne = document.createElement("button");
     ligne.className = "ligne";
@@ -550,7 +532,7 @@ function dessinerEnteteImpression() {
 }
 
 function dessinerFeuille() {
-  const lignes = triees(visibles()).map((r) => {
+  const lignes = parNumero(visibles()).map((r) => {
     const n = niveauDe(r);
     return `<tr>
       <td><span class="pt" style="background:${n.couleur};color:${n.encre}">${r.numero}</span></td>
@@ -586,7 +568,6 @@ function selectionner(numero, recentrer) {
 
 function tout() {
   dessinerLegende();
-  dessinerTris();
   dessinerListe();
   dessinerCarte();
   dessinerEnteteImpression();
