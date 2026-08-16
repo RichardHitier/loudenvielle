@@ -161,6 +161,95 @@
     font-variant-numeric: tabular-nums;
   }
 
+  /* ---- panneau repliable ---- */
+
+  /* Une seule colonne, pas « 0 1fr » : le panneau masqué quitte le flux et
+     la carte retomberait dans la première colonne, large de zéro. */
+  body:not(.panneau-ouvert) #app { grid-template-columns: 1fr; }
+  body:not(.panneau-ouvert) #panneau { display: none; }
+
+  /* Utile seulement quand la liste couvre l'écran et masque l'en-tête. */
+  #fermer-liste { display: none; }
+
+  /* ---- écrans étroits ----
+     Le panneau se réduit à la barre des niveaux : elle sert de filtre et
+     reste la clé de lecture des couleurs, qu'on ne peut pas escamoter.
+     La liste, elle, passe en plein écran à la demande. */
+  @media (max-width: 760px) {
+    #app {
+      grid-template-columns: 1fr;
+      grid-template-rows: auto auto 1fr;
+    }
+    header { padding: 10px 12px; gap: 8px; }
+    header h1 { font-size: 15px; }
+    header .compte { display: none; }
+    header button { padding: 5px 9px; font-size: 12px; }
+
+    /* La barre de niveaux défile horizontalement, elle ne doit pas
+       élargir la page : sans min-width nul, un enfant flex impose sa
+       largeur naturelle et repousse les boutons hors de l'écran. */
+    #app { max-width: 100%; overflow-x: hidden; }
+    .legende { min-width: 0; }
+
+    /* Le panneau reste affiché, même replié : seule la liste s'efface. */
+    body:not(.panneau-ouvert) #app { grid-template-columns: 1fr; }
+    body:not(.panneau-ouvert) #panneau { display: block; }
+
+    #panneau {
+      border-right: 0;
+      border-bottom: 1px solid var(--hairline);
+      padding: 8px 10px;
+      overflow-x: hidden;
+      overflow-y: visible;
+    }
+    #panneau .bloc { margin-bottom: 0; }
+    #panneau .bloc h2 { display: none; }
+    #bloc-liste { display: none; }
+
+    .legende {
+      flex-direction: row;
+      gap: 6px;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .legende::-webkit-scrollbar { display: none; }
+    .legende button {
+      width: auto;
+      white-space: nowrap;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 5px 10px;
+    }
+    .legende .nb { margin-left: 4px; }
+
+    /* Liste demandée : elle recouvre la carte. */
+    body.panneau-ouvert #panneau {
+      position: fixed;
+      inset: 0;
+      z-index: 1200;
+      overflow-y: auto;
+      padding: 16px;
+      border: 0;
+    }
+    body.panneau-ouvert #fermer-liste {
+      display: block;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      width: 100%;
+      margin-bottom: 12px;
+    }
+    body.panneau-ouvert #panneau .bloc { margin-bottom: 20px; }
+    body.panneau-ouvert #panneau .bloc h2 { display: block; }
+    body.panneau-ouvert #bloc-liste { display: block; }
+    body.panneau-ouvert .legende { flex-direction: column; }
+    body.panneau-ouvert .legende button {
+      border: 0;
+      border-radius: 6px;
+      padding: 5px 8px;
+    }
+  }
+
   /* ---- carte ---- */
 
   #carte { height: 100%; background: var(--plane); }
@@ -353,16 +442,19 @@
     <h1>Randonnées</h1>
     <span class="compte" id="compte"></span>
     <span class="grandir"></span>
+    <button id="basculer" aria-expanded="true" aria-controls="panneau">Masquer la liste</button>
     <button id="imprimer">Imprimer / PDF</button>
   </header>
 
   <aside id="panneau">
+    <button id="fermer-liste">Fermer la liste</button>
+
     <div class="bloc">
       <h2>N'afficher que</h2>
       <div class="legende" id="legende"></div>
     </div>
 
-    <div class="bloc">
+    <div class="bloc" id="bloc-liste">
       <h2>Les randos</h2>
       <div id="liste"></div>
     </div>
@@ -614,6 +706,10 @@ function dessinerFeuille() {
 
 function selectionner(numero, recentrer) {
   selection = numero;
+  // Sur mobile la liste couvre la carte : la choisir, c'est vouloir la voir.
+  if (ETROIT.matches && document.body.classList.contains("panneau-ouvert")) {
+    afficherPanneau(false);
+  }
   const marqueur = marqueurs.get(numero);
   if (marqueur && carte.hasLayer(marqueur)) {
     if (recentrer) carte.setView(marqueur.getLatLng(), Math.max(carte.getZoom(), 14));
@@ -681,14 +777,44 @@ async function imprimer() {
 
 document.getElementById("imprimer").onclick = imprimer;
 
-// Ctrl+P direct : on ne peut rien attendre, mais au moins le cadrage suit la
-// nouvelle géométrie de page. Les tuiles déjà vues sont en cache.
-// En mode export, ce recadrage doit rester celui des 44 points, sinon il
-// défait le cadrage commun juste avant la capture.
-window.addEventListener("beforeprint", () => {
+// ---------------------------------------------------------------- panneau
+
+const ETROIT = window.matchMedia("(max-width: 760px)");
+const bascule = document.getElementById("basculer");
+
+function afficherPanneau(ouvert) {
+  document.body.classList.toggle("panneau-ouvert", ouvert);
+  bascule.setAttribute("aria-expanded", String(ouvert));
+  bascule.textContent = ETROIT.matches
+    ? (ouvert ? "Fermer" : "Liste")
+    : (ouvert ? "Masquer la liste" : "Afficher la liste");
+  // Sur grand écran le panneau prend de la place : la carte change de taille.
+  carte.invalidateSize();
+}
+
+bascule.onclick = () =>
+  afficherPanneau(!document.body.classList.contains("panneau-ouvert"));
+
+document.getElementById("fermer-liste").onclick = () => afficherPanneau(false);
+
+// Ouvert par défaut au large, replié sur mobile où l'écran est compté.
+afficherPanneau(!ETROIT.matches);
+ETROIT.addEventListener("change", () => {
+  afficherPanneau(!ETROIT.matches);
+  recadrer();
+});
+
+/** Reprend la taille du conteneur puis recadre. En mode export le cadrage
+ *  reste celui des 44 points, sinon les feuilles cesseraient de se
+ *  superposer. */
+function recadrer() {
   carte.invalidateSize();
   ajusterVue(false, document.body.classList.contains("export-carte"));
-});
+}
+
+// Ctrl+P direct : on ne peut rien attendre, mais au moins le cadrage suit la
+// nouvelle géométrie de page. Les tuiles déjà vues sont en cache.
+window.addEventListener("beforeprint", recadrer);
 
 // ---------------------------------------------------------------- export
 
@@ -726,6 +852,11 @@ function modeExport() {
 
 tout();
 modeExport();
+
+// Le cadrage d'ouverture attend que la mise en page soit posée : sur mobile
+// la carte n'a sa hauteur qu'une fois la barre de niveaux rendue, et un
+// fitBounds calculé trop tôt sort un zoom bien trop large.
+requestAnimationFrame(recadrer);
 </script>
 </body>
 </html>

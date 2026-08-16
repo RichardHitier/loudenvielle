@@ -53,6 +53,9 @@ def imprimer(navigateur: str, url: str, cible: Path) -> bool:
         "--disable-gpu",
         "--no-sandbox",
         "--no-pdf-header-footer",
+        # La page est responsive : sans fenêtre fixe, une largeur par défaut
+        # étroite ferait basculer la mise en page mobile dans le PDF.
+        "--window-size=1400,900",
         f"--virtual-time-budget={BUDGET_MS}",
         f"--print-to-pdf={cible}",
         url,
